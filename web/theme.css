@@ -1,6 +1,7 @@
 /* LuminaPlus v1.2.24 palette and component treatment.
    See third-party/LuminaPlus.LICENSE. Layout: nodes / daily table, with per-node chart dialog. */
 :root {
+  --chart-selection:#eff5ff;
   --bg-0:#f4f4f5; --surface:#fff; --surface-elev:#fff; --surface-sunken:#f4f4f5;
   --border:rgba(24,24,27,.08); --border-subtle:rgba(24,24,27,.06); --border-strong:rgba(24,24,27,.13);
   --text-primary:#18181b; --text-secondary:#52525b; --text-tertiary:#71717a;
@@ -12,7 +13,30 @@
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter Variable",Inter,system-ui,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
   font-synthesis:none; text-rendering:optimizeLegibility; letter-spacing:-.003em;
 }
+:root[data-theme=dark] {
+  color-scheme:dark;
+  --bg-0:#09090b; --surface:#18181b; --surface-elev:#202024; --surface-sunken:#111114;
+  --border:rgba(255,255,255,.09); --border-subtle:rgba(255,255,255,.07); --border-strong:rgba(255,255,255,.17);
+  --text-primary:#f4f4f5; --text-secondary:#b4b4bd; --text-tertiary:#92929e;
+  --hover-bg:#25252b; --progress-bg:#34343c; --status-success:#4ade80; --status-warning:#fbbf24;
+  --status-error:#f87171; --status-info:#60a5fa; --accent-500:#60a5fa; --accent-strong:#93b8ff;
+  --warning:#fbbf24; --chart-selection:#213049;
+}
 body { background:var(--bg-0); color:var(--text-primary); }
+.legend,.attention-note,#history-label,.quiet,.day-detail p,form label,form>small { color:var(--text-secondary); }
+dialog { background:var(--surface); color:var(--text-primary); }
+#theme-toggle { min-width:34px; font-size:17px; line-height:1; padding:8px; }
+:root[data-theme=dark] button { background:var(--surface); }
+:root[data-theme=dark] button:hover { background:var(--hover-bg); }
+:root[data-theme=dark] .primary { color:#fff; background:linear-gradient(180deg,#377ae5,#294fc4); border-color:#377ae5; }
+:root[data-theme=dark] .node-name { background:transparent; }
+:root[data-theme=dark] .row-status { background:rgba(255,255,255,.09); }
+:root[data-theme=dark] .row-status.danger { color:#fca5a5!important; background:#7f1d1d55; border-color:#ef44444d; }
+:root[data-theme=dark] .row-status.warning { color:#fcd34d!important; background:#78350f55; border-color:#f59e0b4d; }
+:root[data-theme=dark] .hidden-tag { color:#c4b5fd; background:#a78bfa22; border-color:#a78bfa44; }
+:root[data-theme=dark] #notice { color:#fde68a; background:#78350f33; }
+:root[data-theme=dark] .form-message { color:var(--warning); }
+@media(max-width:380px) { header { flex-wrap:wrap; padding:14px 0; gap:10px; } header nav { margin-left:auto; } }
 .app-footer { display:flex; justify-content:flex-end; min-height:16px; margin-top:24px; color:var(--text-tertiary); font-size:11px; }
 header { border-color:var(--border); }
 .brand { font-size:21px; font-weight:750; letter-spacing:-.035em; }

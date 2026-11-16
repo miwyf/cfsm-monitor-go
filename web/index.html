@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
+<head><script src="/appearance.js"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
@@ -14,7 +14,7 @@
   <div class="shell">
     <header>
       <a class="brand" href="/" aria-label="CFSM 流量看板首页">CFSM <b>流量看板</b></a>
-      <nav aria-label="管理"><span id="view-mode" class="view-mode">公开视图</span><a id="admin-link" class="admin-nav-link" href="/admin" hidden>后台管理</a><button id="auth-button">管理员登录 <span>↗</span></button></nav>
+      <nav aria-label="管理"><button id="theme-toggle" type="button" aria-label="切换主题">◐</button><span id="view-mode" class="view-mode">公开视图</span><a id="admin-link" class="admin-nav-link" href="/admin" hidden>后台管理</a><button id="auth-button">管理员登录 <span>↗</span></button></nav>
     </header>
     <main>
       <div class="update"><span id="updated">等待数据</span><span id="poll-hint"></span><button id="refresh" class="quiet" aria-label="刷新数据">↻ 刷新</button></div>

@@ -1,10 +1,13 @@
+import { initNotifications } from './notifications.js';
 import { dateInZone, shiftDate } from './traffic.mjs';
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const number = (n, digits = 2) => n == null ? '—' : Number(n).toLocaleString('zh-CN', {maximumFractionDigits:digits});
 let status = null, offset = 0, query = null, loggedIn = false, refreshing = false, hasMore = false, epoch = 0;
 function message(text, error = false) { $('message').textContent = text; $('message').hidden = !text; $('message').classList.toggle('is-error', error); }
+let notifications;
 function showLogin() {
+  notifications?.clear();
   $('setup-panel').hidden=true; $('setup-form').reset(); $('dashboard-link').hidden=false;
   epoch++; loggedIn = false; status = null; query=null; offset=0; hasMore=false; $('admin-layout').hidden = true; $('logout').hidden = true; $('login-panel').hidden = false;
   $('source-form').reset(); $('account-form').reset(); $('history-form').reset();
@@ -97,6 +100,7 @@ $('account-form').addEventListener('submit',(e) => { e.preventDefault(); busy(e.
   showLogin(); $('login-username').value=username; message('账号已更新，请重新登录');
 }); });
 async function start() { try { const session=await api('/api/session'); if (session.setup_required) showSetup(); else if (session.admin) await loadAll(); else showLogin(); } catch (e) { showLogin(); message(e.message,true); } }
+notifications=initNotifications({api,message,busy,epoch:()=>epoch,loggedIn:()=>loggedIn,nodes:()=>status?.nodes||[],zone:()=>status?.time_zone||'Asia/Shanghai'});
 start(); setInterval(refreshStatus,10000);
 api('/api/version').then((result) => { if (result.version) $('app-version').textContent = `v${result.version}`; }).catch(() => {});
 window.addEventListener('pageshow',(e) => { if (e.persisted) { showLogin(); start(); } });

@@ -99,6 +99,9 @@ function dateRows(items, count) {
   });
 }
 function drawHistory(items) {
+  const theme = getComputedStyle(document.documentElement);
+  const gridColor = theme.getPropertyValue('--border-strong').trim(), axisColor = theme.getPropertyValue('--text-secondary').trim();
+  const selectedColor = theme.getPropertyValue('--chart-selection').trim(), spikeColor = theme.getPropertyValue('--status-error').trim();
   document.querySelectorAll('[data-range]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.range) === state.range)));
   $('history-title').textContent = items[0].name;
   $('chart-color').dataset.color = items[0].color;
@@ -114,23 +117,23 @@ function drawHistory(items) {
   let svg = '';
   for (let i = 0; i <= 4; i++) {
     const y = plotTop + plotHeight - i * plotHeight / 4;
-    svg += `<line x1="${left}" x2="${w - right}" y1="${y}" y2="${y}" stroke="#e4e4e7" stroke-dasharray="3 5"/><text x="${left - 9}" y="${y + 4}" text-anchor="end" fill="#52525b" font-size="11">${num(top * i / 4, 1)}</text>`;
+    svg += `<line x1="${left}" x2="${w - right}" y1="${y}" y2="${y}" stroke="${gridColor}" stroke-dasharray="3 5"/><text x="${left - 9}" y="${y + 4}" text-anchor="end" fill="${axisColor}" font-size="11">${num(top * i / 4, 1)}</text>`;
   }
   data.forEach((row, index) => {
     const x = left + index * column + (column - barWidth) / 2;
     let bottom = plotTop + plotHeight;
     const title = `${row.date}\n${row.parts.map((p) => `${p.server.name}: ${num(p.day?.value, 2)} GiB${p.day?.partial ? '*' : ''}`).join('\n')}\n已记录合计: ${num(row.value, 2)} GiB${row.partial ? '*' : ''}`;
     svg += `<g data-day="${row.date}" tabindex="0" role="button" aria-label="${esc(title)}"><title>${esc(title)}</title>`;
-    if (state.chartDay === row.date) svg += `<rect x="${left + index * column + 1}" y="5" width="${Math.max(1, column - 2)}" height="${plotHeight + 43}" rx="5" fill="#eff5ff"/>`;
+    if (state.chartDay === row.date) svg += `<rect x="${left + index * column + 1}" y="5" width="${Math.max(1, column - 2)}" height="${plotHeight + 43}" rx="5" fill="${selectedColor}"/>`;
     row.parts.forEach(({ server, day }) => {
       if (day?.value == null) return;
       const height = day.value === 0 ? 1 : Math.max(1, day.value / top * plotHeight); bottom -= height;
-      svg += `<rect class="bar-segment${day.spike ? ' spike' : ''}" x="${x}" y="${bottom}" width="${barWidth}" height="${height}" rx="2" fill="${day.spike ? '#dc2626' : server.color}"/>`;
+      svg += `<rect class="bar-segment${day.spike ? ' spike' : ''}" x="${x}" y="${bottom}" width="${barWidth}" height="${height}" rx="2" fill="${day.spike ? spikeColor : server.color}"/>`;
     });
     if (row.value === null) svg += `<line x1="${x}" x2="${x + barWidth}" y1="${bottom}" y2="${bottom}" stroke="#a1a1aa" stroke-width="2"/>`;
     svg += `<rect x="${left + index * column}" y="${plotTop}" width="${column}" height="${plotHeight}" fill="transparent"/>`;
     const every = w < 600 ? (data.length > 14 ? 7 : data.length > 7 ? 3 : 1) : data.length > 14 ? 3 : 1;
-    if ((index % every === 0 && index < data.length - (w < 600 ? 2 : 1)) || index === data.length - 1) svg += `<text x="${x + barWidth / 2}" y="${plotTop + plotHeight + 26}" text-anchor="middle" fill="#52525b" font-size="11">${index === data.length - 1 ? '今天' : dayLabel(row.date)}</text>`;
+    if ((index % every === 0 && index < data.length - (w < 600 ? 2 : 1)) || index === data.length - 1) svg += `<text x="${x + barWidth / 2}" y="${plotTop + plotHeight + 26}" text-anchor="middle" fill="${axisColor}" font-size="11">${index === data.length - 1 ? '今天' : dayLabel(row.date)}</text>`;
     svg += '</g>';
   });
   $('chart').innerHTML = `<svg class="traffic-chart" viewBox="0 0 ${w} ${h}" aria-label="每日流量柱状图">${svg}</svg>`;
@@ -205,5 +208,6 @@ $('login-form').addEventListener('submit', async (e) => {
 });
 window.addEventListener('pageshow', (e) => { if (e.persisted) { state.servers = []; setAdmin(false); refresh(); } });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+document.addEventListener('themechange', render);
 render(); refresh(); setInterval(refresh, 30000);
 api('/api/version').then((result) => { if (result.version) $('app-version').textContent = `v${result.version}`; }).catch(() => {});

@@ -45,6 +45,8 @@ jobs:
         run: |
           node --check web/app.js
           node --check web/admin.js
+          node --check web/appearance.js
+          node --check web/notifications.js
           node --test tests/*.test.mjs
 
   docker:

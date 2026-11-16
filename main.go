@@ -72,6 +72,9 @@ type app struct {
 	failures     int
 	fetchCount   int
 	collecting   bool
+	notifyMu     sync.Mutex
+	notifyWake   chan struct{}
+	notifyClient *http.Client
 }
 
 func newApp(dir string, secure bool, zone *time.Location) (*app, error) {
@@ -80,8 +83,9 @@ func newApp(dir string, secure bool, zone *time.Location) (*app, error) {
 	}
 	a := &app{dir: dir, secure: secure, zone: zone, config: settings{PollSeconds: 300, RetentionDays: 90},
 		ledger: map[string]*record{}, sessions: map[string]session{}, attempts: map[string]loginWindow{},
-		changed: make(chan struct{}, 1), dirty: map[dayKey]bool{}, startedAt: time.Now(),
-		client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+		changed: make(chan struct{}, 1), notifyWake: make(chan struct{}, 1), dirty: map[dayKey]bool{}, startedAt: time.Now(),
+		notifyClient: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		client:       &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	if err := a.openStore(); err != nil {
 		if a.db != nil {
 			a.db.Close()
@@ -275,6 +279,7 @@ func (a *app) handler() http.Handler {
 	mux.HandleFunc("GET /api/servers", a.list)
 	mux.HandleFunc("GET /api/settings", a.getSettings)
 	a.adminRoutes(mux)
+	a.notificationRoutes(mux)
 	mux.HandleFunc("POST /api/settings", a.saveSettings)
 	web, _ := fs.Sub(assets, "web")
 	files := http.FileServer(http.FS(web))
@@ -291,7 +296,7 @@ func (a *app) handler() http.Handler {
 			files.ServeHTTP(w, clone)
 			return
 		}
-		if r.URL.Path != "/" && r.URL.Path != "/app.js" && r.URL.Path != "/traffic.mjs" && r.URL.Path != "/theme.mjs" && r.URL.Path != "/style.css" && r.URL.Path != "/theme.css" && r.URL.Path != "/admin.js" && r.URL.Path != "/admin.css" {
+		if r.URL.Path != "/" && r.URL.Path != "/app.js" && r.URL.Path != "/traffic.mjs" && r.URL.Path != "/theme.mjs" && r.URL.Path != "/style.css" && r.URL.Path != "/theme.css" && r.URL.Path != "/admin.js" && r.URL.Path != "/admin.css" && r.URL.Path != "/appearance.js" && r.URL.Path != "/notifications.js" {
 			http.NotFound(w, r)
 			return
 		}
@@ -525,6 +530,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go a.poll(ctx)
+	go a.notificationLoop(ctx)
 	srv := &http.Server{Addr: addr, Handler: a.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
 	go func() {
 		<-ctx.Done()

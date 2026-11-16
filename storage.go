@@ -37,7 +37,7 @@ func (a *app) openStore() error {
 	if err = a.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		return err
 	}
-	if version > 1 {
+	if version > 2 {
 		return errors.New("unsupported SQLite schema version")
 	}
 	_, err = a.db.Exec(`
@@ -61,7 +61,18 @@ CREATE TABLE IF NOT EXISTS daily_usage (
  partial INTEGER NOT NULL CHECK(partial IN (0,1)), estimated INTEGER NOT NULL CHECK(estimated IN (0,1)),
  PRIMARY KEY(node_id,day));
 CREATE INDEX IF NOT EXISTS daily_usage_day ON daily_usage(day);
-PRAGMA user_version=1;`)
+CREATE TABLE IF NOT EXISTS notify_channels (id TEXT PRIMARY KEY, config TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS notify_marks (
+ channel_id TEXT NOT NULL REFERENCES notify_channels(id) ON DELETE CASCADE,
+ event_key TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(channel_id,event_key));
+CREATE TABLE IF NOT EXISTS notify_jobs (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id TEXT NOT NULL REFERENCES notify_channels(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL, event_key TEXT NOT NULL, payload TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+ next_at INTEGER NOT NULL, created_at INTEGER NOT NULL, sent_at INTEGER NOT NULL DEFAULT 0,
+ last_error TEXT NOT NULL DEFAULT '', UNIQUE(channel_id,event_key));
+CREATE INDEX IF NOT EXISTS notify_jobs_pending ON notify_jobs(status,next_at);
+PRAGMA user_version=2;`)
 	if err != nil {
 		return err
 	}
@@ -179,6 +190,9 @@ func (a *app) commitSnapshot(items []server, now time.Time, next *settings) (err
 	if next != nil {
 		a.config = *next
 		if previous.URL != next.URL || previous.Key != next.Key {
+			if _, err = tx.Exec(`DELETE FROM notify_jobs; DELETE FROM notify_marks;`); err != nil {
+				return err
+			}
 			if _, err = tx.Exec(`DELETE FROM nodes`); err != nil {
 				return err
 			}
