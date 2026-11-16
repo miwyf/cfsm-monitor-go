@@ -9,7 +9,7 @@
 
 ## 安装
 
-镜像：`ghcr.io/miwyf/cfsm-monitor-go:latest`（待首次发布），支持 Linux AMD64 / ARM64。
+镜像：`ghcr.io/miwyf/cfsm-monitor-go:latest`，支持 Linux AMD64 / ARM64。
 
 ### 1. Docker Compose（推荐）
 
