@@ -52,8 +52,32 @@ jobs:
   docker:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Configure image tags
+        id: image
+        env:
+          CFSM_REPOSITORY: ${{ github.repository }}
+          CFSM_VERSION: ${{ needs.test.outputs.version }}
+          CFSM_PUBLISH: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          image="ghcr.io/${CFSM_REPOSITORY,,}"
+          echo "publish=$CFSM_PUBLISH" >> "$GITHUB_OUTPUT"
+          if [[ "$CFSM_PUBLISH" == "true" ]]; then
+            printf 'tags<<EOF\n%s:%s\n%s:latest\nEOF\n' "$image" "$CFSM_VERSION" "$image" >> "$GITHUB_OUTPUT"
+          else
+            echo 'tags=cfsm-monitor-go:ci' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Log in to GHCR
+        if: steps.image.outputs.publish == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build AMD64 and ARM64
@@ -61,11 +85,12 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: false
-          tags: cfsm-monitor-go:ci
+          push: ${{ steps.image.outputs.publish == 'true' }}
+          tags: ${{ steps.image.outputs.tags }}
           labels: |
             org.opencontainers.image.version=${{ needs.test.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
-          outputs: type=oci,dest=${{ runner.temp }}/cfsm-monitor-go.oci.tar
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          outputs: ${{ steps.image.outputs.publish != 'true' && format('type=oci,dest={0}/cfsm-monitor-go.oci.tar', runner.temp) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -1,147 +1,144 @@
-# CFSM Monitor · Go Docker 看板
+# CFSM Monitor Go
 
-独立的只读 Web 看板，从现有 [CF-Server-Monitor](https://github.com/huilang-me/CF-Server-Monitor) 批量采集数据。Go 后端内嵌前端，不依赖 Home Assistant，也不需要 Node.js 运行环境。
+基于 [CF-Server-Monitor](https://github.com/huilang-me/CF-Server-Monitor) 的独立流量看板，查看各节点的每日用量、周期用量、剩余流量、总配额和重置日期。
 
-版本号见 [VERSION](VERSION)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。本项目采用 [MIT License](LICENSE)，第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+- 访客查看公开节点，管理员登录后查看隐藏节点。
+- 支持卡片、列表、每日明细、节点流量图和浅色/暗色主题。
+- 支持多个飞书、企业微信、钉钉通知渠道，可多选节点，设置流量预警和每日播报。
+- Go 单程序运行，SQLite 保存配置和历史，无需 Home Assistant 或额外数据库。
 
-- **访客**直接查看 CFSM 中没有隐藏的节点。
-- **管理员**使用此 Docker 的独立账号登录，查看全部节点并设置数据源。
-- 隐藏规则沿用 CFSM 的 `is_hidden`，由 Go 后端过滤；公开接口、统计和图表都不会包含隐藏节点。缺少或无法识别隐藏标记的节点仅管理员可见。
-- 主页面显示节点流量和按日期排列的每日明细表。节点流量右侧可切换卡片和列表，浏览器记住选择。列表逐行显示今日、昨日、周期已用、剩余、总配额、使用率、重置日期与状态，联动原有筛选和排序。保留浅色配色，不展示 CPU、内存、磁盘和实时网速。
-- 点击卡片、节点列表行或每日明细的节点名称，弹出该节点的流量图，支持 7/14/30 天切换和点击日期。弹窗不会修改主页面筛选，可通过关闭按钮、Escape 或点击弹窗外关闭。节点消失、数据不可用或权限变化后不可见时，关闭弹窗并清除内容。
-- 节点流量和每日明细均可单独收起或展开，浏览器记住折叠状态。收起后保留标题和展开按钮。
-- 卡片显示周期已用/总配额、剩余、今日、昨日、近 7 日均和重置日期；每日表默认 7 天，可展开 30 天。用量突增标红，部分记录标 `*`，缺样保留 `—`。
-- 默认 300 秒一次批量采集，所有浏览器共用缓存。浏览器每 30 秒读取本地缓存，不额外请求 CFSM。
-- 独立后台 `/admin` 提供数据源设置、采集状态与立即采集、历史查询与清理、管理员账号修改。配置和每日记录存入 SQLite，App 口令不回显、不传给访客。
-- 右上角切换浅色、暗色或跟随系统，浏览器保存偏好，前后台一致。
-- 后台可添加多个飞书、企业微信、钉钉通知渠道，每个渠道独立设置节点范围、流量预警和每日播报时间。
+## 安装
 
-视觉样式参考 [LuminaPlus v1.2.24](https://github.com/volcano-1025/CFSM-Theme-LuminaPlus)：使用其浅色配色、卡片表面、按钮、标签与表格风格；配额条采用同一组 OKLCH 色标和 18 段用量规则，用量数字采用相同的绿色→琥珀→红色变化。柱状图保持实心。此处固定参考版本，不随原 CFSM 的主题设置自动变化。相关许可见 [LuminaPlus.LICENSE](third-party/LuminaPlus.LICENSE)。
+镜像：`ghcr.io/miwyf/cfsm-monitor-go:latest`（待首次发布），支持 Linux AMD64 / ARM64。
 
-## Docker 启动
+### 1. Docker Compose（推荐）
+
+下载 [compose.yaml](compose.yaml)，放到一个空目录，在该目录执行：
 
 ```sh
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
-无需预先配置账号密码。需要调整端口或绑定地址时，可复制 `.env.example` 为 `.env` 后修改运行参数。
+默认访问 `http://127.0.0.1:8080`。
 
-默认访问 `http://127.0.0.1:8080`。如需局域网访问，在 `.env` 设置 `BIND_ADDRESS=0.0.0.0`；使用 `PORT` 调整宿主机端口。
+修改端口或允许其他设备访问：在同目录新建 `.env`，填写以下内容后重新执行启动命令。
 
-1. 首次打开网页，进入「创建管理员」，自行填写账号、密码（至少 6 位）及确认密码，创建后自动登录。
-2. 打开「后台管理 → 数据源设置」，填 CFSM 根地址，例如 `https://status.example.com`。也可以直接访问 `/admin` 登录。
-3. 输入 CFSM「设置 → 安全设置 → App 访问口令」中的 **16–32 位 App 口令**。这里不是 Agent 的 `API_SECRET`，也不是 CFSM 管理员密码。
-4. 设置采集间隔，点击「验证连接并保存」。只有成功读取节点列表才会保存。
-5. 退出登录，确认公开页只显示没有隐藏的节点。
+```dotenv
+BIND_ADDRESS=0.0.0.0
+PORT=8080
+```
 
-修改数据源时口令留空表示沿用，始终不显示已保存的口令。更换地址或口令会重新开始本地每日流量记录，避免把不同数据源的同名 ID 合并。
+其他设备访问 `http://服务器IP:8080`。
 
-启动无需预填 CFSM 地址或口令，首次配置前公开页显示「等待管理员配置 CFSM 数据源」。
+### 2. Docker Run
 
-## 配置及更新
-
-| 环境变量 | 说明 |
-| --- | --- |
-| `BIND_ADDRESS` | Compose 宿主机绑定地址，默认 `127.0.0.1` |
-| `PORT` | Compose 宿主机端口，默认 `8080` |
-| `COOKIE_SECURE` | 经 HTTPS 访问时设为 `true`；本地 HTTP 用 `false` |
-| `TZ` | 每日统计及重置日期时区，默认 `Asia/Shanghai` |
-| `DATA_DIR` | 数据目录，容器内固定默认 `/data`；本机运行默认 `./data` |
-| `LISTEN_ADDR` | 服务监听地址，默认 `:8080` |
-
-CFSM 地址、App 口令和间隔通过后台设置，不写在 `.env` 中。容器以 UID/GID `10001:10001` 运行，根文件系统只读，数据写入 `cfsm-data` 命名卷。改用绑定目录时需要让此 UID 可写。
-
-更新源码或更改运行参数后运行：
+拉取镜像并启动：
 
 ```sh
-docker compose up -d --build --force-recreate
+docker pull ghcr.io/miwyf/cfsm-monitor-go:latest
+docker run -d --name cfsm-monitor --restart unless-stopped -p 127.0.0.1:8080:8080 -e TZ=Asia/Shanghai -v cfsm-data:/data ghcr.io/miwyf/cfsm-monitor-go:latest
 ```
 
-管理员通过网页首次创建，密码以哈希保存到 SQLite。没有默认账号密码，初始化成功后创建入口关闭；并发初始化只能有一个成功。之后在后台修改账号，保存后全部会话失效，重新登录。账号密码不通过环境变量设置。更新已有数据库时保留原账号。
+默认访问 `http://127.0.0.1:8080`。允许其他设备访问时，将端口参数改为 `-p 8080:8080`。
 
-重启保留账号、数据源及每日记录，登录会话需要重新建立。`docker compose down` 保留数据，**`docker compose down -v` 会删除账号、配置及记录**。
+### 3. 1Panel
 
-镜像可通过 Buildx 构建 Linux AMD64/ARM64，例如：
+1. 打开「容器 → 编排 → 创建」，名称填 `cfsm-monitor-go`，选择「编辑」，粘贴以下内容后启动（[1Panel 编排说明](https://1panel.pro/docs/v2/user_manual/containers/composes/)）：
+
+   ```yaml
+   services:
+     cfsm-monitor:
+       image: ghcr.io/miwyf/cfsm-monitor-go:latest
+       pull_policy: always
+       restart: unless-stopped
+       ports:
+         - "8080:8080"
+       environment:
+         TZ: Asia/Shanghai
+         COOKIE_SECURE: "false"
+       volumes:
+         - cfsm-data:/data
+
+   volumes:
+     cfsm-data:
+   ```
+
+2. 访问 `http://服务器IP:8080` 创建管理员，再配置 CFSM 地址和 App 访问口令。端口被占用时修改左侧端口，如 `"8081:8080"`。
+
+数据保存在命名卷中，更新时拉取新镜像并重建容器，保留原数据卷。
+
+### 4. 手动部署（源码编译）
+
+下载并解压源码，进入项目目录。直接运行需要 Go 1.26 或以上。
+
+Linux / macOS：
 
 ```sh
-docker buildx build --platform linux/arm64 -t cfsm-monitor-go:arm64 --load .
+go build -trimpath -o cfsm-monitor .
+./cfsm-monitor
 ```
 
-## 数据与权限边界
+Windows PowerShell：
 
-服务端仅调用 `GET /api/servers`，使用 `X-App-Password`，不提供服务器修改、探针上报或电源控制；原 CFSM 及 Agent 继续运行。该行为与上游 [App API 文档](https://github.com/huilang-me/CF-Server-Monitor/blob/main/API.md) 对齐。
+```powershell
+go build -trimpath -o cfsm-monitor.exe .
+.\cfsm-monitor.exe
+```
 
-隐藏状态在下一次成功采集时更新，默认最大同步间隔约 5 分钟，加请求时间。采集失败时停止返回旧数据，以免已在 CFSM 改为隐藏的节点继续公开。Cloudflare 站点级挑战仍可能阻止服务端请求，需要 CFSM 站点允许该只读访问。
+访问 `http://127.0.0.1:8080`，数据默认保存到当前目录的 `data/`。
 
-密码以 PBKDF2-SHA256 哈希和随机盐存入 SQLite；登录使用随机、12 小时有效的 HttpOnly/SameSite Cookie，退出后服务端立即作废。登录限流不信任客户端转发 IP。经反向代理公开提供服务时应使用 HTTPS，并设置 `COOKIE_SECURE=true`。
+使用 Docker 从源码构建：
 
-数据库为 `/data/cfsm.db`，使用 WAL 日志和事务，文件权限为 `0600`。数据库及其 `-wal`、`-shm` 文件包含私人配置和流量历史，不应公开分享；`.env` 同样属于私人配置。旧版 `settings.json` 和 `traffic.json` 不再读取，也不提供迁移。首次启用 SQLite 从新库开始。
+```sh
+docker compose -f compose.yaml -f compose.dev.yaml up -d --build
+```
 
-数据库表分别保存设置、管理员、节点、采样基准和每日流量，不需要安装 MySQL 或 PostgreSQL。SQLite 驱动使用纯 Go 的 [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)，不需要 CGO。许可见 [SQLite.LICENSE](third-party/SQLite.LICENSE) 和 [SQLite-3RD-PARTY.md](third-party/SQLite-3RD-PARTY.md)。浏览器及公开 API 不接收 CFSM 原始响应、Agent 密钥、IP 地址、备注或未过滤的全局统计。
+## 首次配置
 
-流量配额按 CFSM 的 GiB 口径，计数按 `total` / `ul` / `dl` / `max` 配置计算。历史默认保留 90 个本地日，后台可设 30–3650 天；看板展示最近 30 天，图表可切换 7/14/30 日，更早记录可在后台按节点和日期查询，每页 100 条。缩短保留天数立即清理过期记录，清空历史同时重置采样基准，下次采集重新开始统计。
+1. 打开网页，自行创建管理员账号，密码至少 6 位。
+2. 进入「后台管理 → 数据源设置」，填写 CFSM 根地址，如 `https://status.example.com`。
+3. 填写 CFSM「设置 → 安全设置 → App 访问口令」中的 16–32 位口令，点击「验证连接并保存」。请使用 App 访问口令，不是 Agent 的 `API_SECRET`。
 
-首次接入、重启期间的缺样或计数重置不会补成完整历史；跨午夜的短间隔按时间分摊并标记估算，跨日长中断保留空缺。重置日根据 CFSM 的 `reset_day` 和配置时区推算，不代表服务商实际结算时间。
-
-## 流量关注提示
-
-- **今日用量突增 / 红色日期**：与节点此前 7 个自然日内完整记录的中位数比较，至少有 3 天基准，当前单日已记录用量超过基准的 3 倍且达到 1 GiB 时提示。今天只用截至采集时的累计量，不按时间推算全天；历史日期也只使用该日之前的基准。
-- **可能提前用尽**：此前 7 个自然日内至少有 3 天完整记录时，用这些记录的日均量估算剩余流量是否能支撑到下次重置；这是用量趋势估算。
-- **余量不足 10% / 配额已用尽**：直接根据 CFSM 配额及周期已用量显示。
-- **积累基准中**：完整历史不足 3 天，暂不判突增；每日缺样显示 `—`，部分记录显示 `*`，点击日期可看说明。部分日和缺样不作为比较基准，也不标为突增。正常跨午夜分摊的完整日记录可参与基准，但明细保留估算说明。
-
-默认按关注程度排序，避免单个总览或合计图掩盖某台节点的用量变化。实际记录从本看板接入后开始，不会将 CFSM 的周期已用量伪装成今日流量。
+没有默认账号密码，CFSM 地址和口令均通过后台设置。
 
 ## 消息推送
 
-在「后台管理 → 消息推送」新增渠道，选择平台并填写群机器人的 Webhook。最多 20 个渠道，同一平台也可添加多个。飞书、钉钉开启加签时填写签名密钥；企业微信群机器人只需 Webhook。机器人如启用关键词校验，可把关键词设为 `CFSM`，所有通知均带此前缀。微信接入指企业微信群机器人，不是个人微信登录。
+进入「后台管理 → 消息推送」，添加渠道并填写机器人 Webhook；飞书、钉钉启用加签时填写签名密钥。微信渠道使用企业微信群机器人。
 
-每个渠道分别设置：
+| 设置 | 说明 |
+| --- | --- |
+| 节点范围 | 公开、隐藏、全部或指定节点；指定节点可多选 |
+| 流量预警 | 配额阈值、单日用量、流量突增、预计重置前用尽 |
+| 每日播报 | 默认每天 08:00，可设置最多 4 个时间，按后台时区执行 |
+| 播报内容 | 每节点一行：昨日用量、当前剩余/总配额、重置日期 |
 
-- **节点范围**：仅公开（默认）、仅隐藏、全部、指定节点。指定节点可包含隐藏节点；只有管理员可编辑这些设置。
-- **流量预警**：周期配额阈值（默认 80%、90%、100%）、今日用量达到指定 GiB、完整记录中的今日突增、预计重置前用尽。突增及预测与页面使用同样的完整历史基准，部分记录不判突增。
-- **每日播报**：设置 1–4 个 `HH:MM` 时间，如 `09:00, 21:00`，使用后台 `TZ` 时区，默认 `Asia/Shanghai`。播报逐节点列出今日、昨日、周期已用/总配额、剩余和重置日期；`*` 代表部分记录，`—` 代表无样本。
+保存后点击「测试发送」，确认群内收到消息。历史从本看板接入后开始记录；`*` 表示部分记录，`—` 表示无样本。
 
-通知检查每 15 秒执行，不额外请求 CFSM。周期阈值跨过后去重，首次启用时只报告当前达到的最高阈值；同一日的用量、突增和预测预警不重复发送。去重与待发送任务保存到 SQLite，重启后保留。用量回落到阈值以下后重新跨过可再次预警。
+## 运行参数
 
-每日时间到达后 10 分钟内可补发一次，超过窗口不追发旧播报。数据源不可用时不发送旧节点预警，日播报只提示数据不可用。发送前再次检查当前节点范围，已移除或不再符合公开/隐藏条件的节点不会从队列继续发出。更换数据源会清除旧通知队列及触发状态。
+| 环境变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `BIND_ADDRESS` | `127.0.0.1` | Compose 宿主机绑定地址 |
+| `PORT` | `8080` | Compose 宿主机端口 |
+| `TZ` | `Asia/Shanghai` | 流量统计和通知时区 |
+| `COOKIE_SECURE` | `false` | 经 HTTPS 访问时设为 `true` |
+| `DATA_DIR` | Docker：`/data`；手动：`./data` | 数据目录 |
+| `LISTEN_ADDR` | `:8080` | 程序监听地址 |
 
-长消息按 UTF-8 字节拆分。每条最多尝试 3 次，失败后可在发送记录里手动重试；网络超时后的重试可能造成重复，因为外部机器人不提供本应用可用的幂等确认。记录保留 30 天，界面显示最近 100 条。更改接收地址、范围、规则或启停时取消旧任务并重新评估预警，未完成的日播报可在时间窗口内重新生成，已发送的日播报不重复；仅修改名称不重发。测试发送只发送测试文字，不附带节点数据；测试成功需以发送记录和接收端为准。
+Compose 通过 `.env` 设置参数；Docker Run 使用 `-e`；手动运行使用系统环境变量。
 
-Webhook 与签名密钥保存于私有 SQLite 数据卷，接口不回显已保存值，编辑时留空沿用，可显式清除签名。日志不记录 Webhook、密钥或平台原始响应。
+## 更新与数据
 
-平台参考：[飞书自定义机器人](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)、[企业微信群机器人](https://developer.work.weixin.qq.com/document/path/91770)、[钉钉自定义机器人](https://open.dingtalk.com/document/robots/custom-robot-access)。
+- **Compose**：执行 `docker compose pull`，再执行 `docker compose up -d`。
+- **Docker Run**：执行 `docker pull ghcr.io/miwyf/cfsm-monitor-go:latest`，删除旧容器 `docker rm -f cfsm-monitor` 后重新执行启动命令，使用原数据卷。
+- **1Panel**：拉取新镜像并重建容器，保留原数据卷。
+- **源码编译**：停止程序，替换为新版源码后重新编译、启动，保留原数据目录或数据卷。
 
-## 本地开发与验证
+数据库文件为数据目录下的 `cfsm.db`。Compose 使用 `cfsm-data` 命名卷，Docker Run 使用上面 `-v` 指定的命名卷；更新时保留原数据卷。
 
-需要 Go 1.26 或以上，直接 `go run .`，然后打开网页创建管理员。
+`docker compose down` 保留数据，**`docker compose down -v` 会删除账号、配置和历史**。每日历史默认保留 90 天，可在后台调整。
 
-```sh
-go test ./...
-go test -race ./...
-go vet ./...
-node --check web/app.js
-node --check web/admin.js
-node --check web/appearance.js
-node --check web/notifications.js
-node --test tests/traffic-view.test.mjs
-node --test tests/theme.test.mjs
-docker compose build
-```
+## 版本与许可
 
-测试覆盖首次网页初始化、并发防重复创建、初始化权限与重启关闭、匿名/管理员可见范围、退出及过期会话、请求来源和限流、SQLite 持久化与事务回滚、旧 JSON 不导入、账号修改与重启、历史保留与清空、后台权限及分页、配置口令不回显、禁止携带口令跟随重定向、采集失败、隐藏状态变更、并发读取与每日流量边界。
-
-健康检查 `GET /healthz` 检查进程和数据库连接；数据源尚未配置或采集失败时，`GET /api/servers` 返回 `503`，两者含义不同。后台「立即采集」至少间隔 30 秒。
-
-## 版本与 GitHub 发布
-
-`VERSION` 是应用版本的唯一来源，编译时嵌入程序。看板和后台页脚、`GET /api/version`、启动日志和以下命令显示同一版本：
-
-```sh
-go run . --version
-docker run --rm cfsm-monitor-go:local --version
-```
-
-发布新版本时修改 `VERSION` 并更新 `CHANGELOG.md`，重新测试和构建。Git 标签使用 `v` 前缀，例如 `v0.1.0`。CI 检查标签与 `VERSION` 一致，执行 Go 竞态测试、静态检查、前端测试及 AMD64/ARM64 镜像构建。Actions 固定到已核对的提交，配置见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。CI 不推送镜像、不创建 Release。
-
-推送前确定 GitHub 账号/组织、仓库名和可见性，再添加对应远程地址。提交文件应包含源码、测试、许可、文档和 `.env.example`；`.env`、数据库、流量记录、截图、日志及测试归档保留在仓库之外。初始源码不包含任何实际 CFSM 地址、App 口令或管理员配置。
+[版本号](VERSION) · [更新记录](CHANGELOG.md) · [发布说明](docs/releasing.md) · [MIT License](LICENSE) · [第三方许可](THIRD_PARTY_NOTICES.md)

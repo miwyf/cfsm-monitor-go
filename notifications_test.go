@@ -152,6 +152,7 @@ func TestNotificationAdminAPIAndPersistence(t *testing.T) {
 	}
 	cookie := loginTest(t, a)
 	c := exampleChannel()
+	c.Scope, c.NodeIDs = "selected", []string{"pub", "hidden"}
 	raw, _ := json.Marshal(c)
 	w := call(a, "POST", "/api/admin/notifications/save", string(raw), cookie)
 	if w.Code != 200 {
@@ -162,6 +163,9 @@ func TestNotificationAdminAPIAndPersistence(t *testing.T) {
 		t.Fatal("channel not saved", err)
 	}
 	c = channels[0]
+	if c.Scope != "selected" || len(c.NodeIDs) != 2 {
+		t.Fatal("multiple node selection not saved")
+	}
 	w = call(a, "GET", "/api/admin/notifications", "", cookie)
 	if w.Code != 200 || strings.Contains(w.Body.String(), c.Webhook) || strings.Contains(w.Body.String(), c.Secret) {
 		t.Fatal("notification credentials exposed", w.Code)
@@ -192,7 +196,7 @@ func TestNotificationAdminAPIAndPersistence(t *testing.T) {
 	}
 	defer restarted.db.Close()
 	channels, _ = restarted.channels()
-	if len(channels) != 1 || channels[0].Name != "已修改" {
+	if len(channels) != 1 || channels[0].Name != "已修改" || len(channels[0].NodeIDs) != 2 {
 		t.Fatal("channel lost at restart")
 	}
 	cookie = loginTest(t, restarted)
@@ -458,7 +462,7 @@ func TestNotificationUsageRulesAndPartialData(t *testing.T) {
 	if err := a.runNotifications(context.Background(), now); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"今日用量达到 30.00", "今日用量突增", "可能提前用尽"} {
+	for _, want := range []string{"今日用量 40.00 GiB（阈值 30.00 GiB）", "今日用量突增", "近7日中位数 10.00 GiB（约 4.0 倍）", "可能提前用尽"} {
 		if !strings.Contains(text, want) {
 			t.Fatal("usage rule missing", want)
 		}

@@ -1,0 +1,4 @@
+services:
+  cfsm-monitor:
+    build: .
+    image: cfsm-monitor-go:local

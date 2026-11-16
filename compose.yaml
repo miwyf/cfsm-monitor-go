@@ -1,7 +1,6 @@
 services:
   cfsm-monitor:
-    build: .
-    image: cfsm-monitor-go:local
+    image: ghcr.io/miwyf/cfsm-monitor-go:latest
     restart: unless-stopped
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8080}:8080"

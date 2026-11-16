@@ -92,16 +92,15 @@ func findDay(s server, date string) *day {
 	}
 	return nil
 }
-func nodeUsageText(s server, now time.Time, zone *time.Location) string {
-	date := now.In(zone).Format("2006-01-02")
+func notificationNodeName(s server) string {
 	name := safeNodeName(s.Name)
 	if s.Hidden {
 		name += " [隐藏]"
 	}
-	used, limit, remaining := "—", "—", "—"
-	if s.Used != nil {
-		used = fmt.Sprintf("%.2f", *s.Used)
-	}
+	return name
+}
+func notificationQuotaText(s server, now time.Time, zone *time.Location) string {
+	limit, remaining := "—", "—"
 	if s.Limit != nil {
 		limit = fmt.Sprintf("%.2f", *s.Limit)
 	}
@@ -110,11 +109,21 @@ func nodeUsageText(s server, now time.Time, zone *time.Location) string {
 	}
 	reset := nextReset(s.ResetDay, zone, now)
 	if reset != "" {
-		reset = reset[:10]
+		reset = strings.ReplaceAll(reset[5:10], "-", "/")
 	} else {
 		reset = "—"
 	}
-	return fmt.Sprintf("%s\n今日 %s GiB · 昨日 %s GiB\n周期 %s / %s GiB · 剩余 %s GiB\n重置 %s", name, observedGiB(findDay(s, date)), observedGiB(findDay(s, now.In(zone).AddDate(0, 0, -1).Format("2006-01-02"))), used, limit, remaining, reset)
+	return fmt.Sprintf("剩余 %s/%s｜重置 %s", remaining, limit, reset)
+}
+func dailyNodeText(s server, now time.Time, zone *time.Location) string {
+	yesterday := now.In(zone).AddDate(0, 0, -1)
+	d := findDay(s, yesterday.Format("2006-01-02"))
+	marker := ""
+	median, _ := priorBaseline(s, yesterday, zone)
+	if d != nil && d.Samples > 0 && !d.Partial && median >= 0 && d.Used/gib >= 1 && d.Used/gib > median*3 {
+		marker = " ⚠突增"
+	}
+	return fmt.Sprintf("%s｜昨日 %s%s｜%s", notificationNodeName(s), observedGiB(d), marker, notificationQuotaText(s, now, zone))
 }
 
 func priorBaseline(s server, now time.Time, zone *time.Location) (float64, float64) {
@@ -237,12 +246,16 @@ func (a *app) scheduleChannel(c notificationChannel, snap notificationSnapshot, 
 			median, average := priorBaseline(s, now, a.zone)
 			if today != nil && today.Samples > 0 {
 				if c.DailyGiB > 0 && today.Used/gib >= c.DailyGiB {
-					if err := add(fmt.Sprintf("daily-limit:%s:%s:%g", s.ID, date, c.DailyGiB), fmt.Sprintf("今日用量达到 %.2f GiB", c.DailyGiB)); err != nil {
+					if err := add(fmt.Sprintf("daily-limit:%s:%s:%g", s.ID, date, c.DailyGiB), fmt.Sprintf("今日用量 %s GiB（阈值 %.2f GiB）", observedGiB(today), c.DailyGiB)); err != nil {
 						return err
 					}
 				}
 				if c.Spike && !today.Partial && median >= 0 && today.Used/gib >= 1 && today.Used/gib > median*3 {
-					if err := add("spike:"+s.ID+":"+date, "今日用量突增（超过前 7 天完整记录中位数的 3 倍）"); err != nil {
+					multiple := "基准 0 GiB"
+					if median > 0 {
+						multiple = fmt.Sprintf("约 %.1f 倍", today.Used/gib/median)
+					}
+					if err := add("spike:"+s.ID+":"+date, fmt.Sprintf("今日用量突增：%s GiB｜近7日中位数 %.2f GiB（%s）", observedGiB(today), median, multiple)); err != nil {
 						return err
 					}
 				}
@@ -261,13 +274,13 @@ func (a *app) scheduleChannel(c notificationChannel, snap notificationSnapshot, 
 			}
 		}
 		if len(reasons) > 0 {
-			blocks = append(blocks, notificationBlock{s.ID, strings.Join(reasons, "；") + "\n" + nodeUsageText(s, now, a.zone)})
+			blocks = append(blocks, notificationBlock{s.ID, notificationNodeName(s) + "\n" + strings.Join(reasons, "\n") + "\n" + notificationQuotaText(s, now, a.zone)})
 		}
 	}
 	if len(blocks) > 0 {
 		slices.Sort(keys)
 		sum := sha256.Sum256([]byte(strings.Join(keys, "\n")))
-		if err = enqueueParts(tx, c, "alert", hex.EncodeToString(sum[:])+":"+randomToken(), snap.Source, "CFSM 流量预警\n"+local.Format("2006-01-02 15:04 MST"), blocks, now); err != nil {
+		if err = enqueueParts(tx, c, "alert", hex.EncodeToString(sum[:])+":"+randomToken(), snap.Source, "CFSM 流量预警\n"+local.Format("2006-01-02 15:04 MST")+"\n单位 GiB；* 部分记录；— 无样本", blocks, now); err != nil {
 			return err
 		}
 	}
@@ -292,14 +305,14 @@ func (a *app) scheduleChannel(c notificationChannel, snap notificationSnapshot, 
 			} else {
 				for _, s := range snap.Nodes {
 					if channelContains(c, s) {
-						items = append(items, notificationBlock{s.ID, nodeUsageText(s, now, a.zone)})
+						items = append(items, notificationBlock{s.ID, dailyNodeText(s, now, a.zone)})
 					}
 				}
 				if len(items) == 0 {
 					items = append(items, notificationBlock{Text: "所选范围暂无节点"})
 				}
 			}
-			heading := "CFSM 每日播报\n" + date + " " + clock + " · " + a.zone.String() + "\n* 部分记录；— 无样本"
+			heading := "CFSM 每日播报\n" + date + " " + clock + " · " + a.zone.String() + "\n昨日 " + local.AddDate(0, 0, -1).Format("01/02") + " · 单位 GiB；* 部分记录；— 无样本"
 			if err = enqueueParts(tx, c, "daily", key+":"+randomToken(), snap.Source, heading, items, now); err != nil {
 				return err
 			}
@@ -386,7 +399,11 @@ func (a *app) processNotificationJobs(ctx context.Context, channels []notificati
 			}
 			continue
 		}
-		message := payload.Heading + "\n\n" + strings.Join(blocks, "\n\n")
+		separator := "\n\n"
+		if j.kind == "daily" {
+			separator = "\n"
+		}
+		message := payload.Heading + "\n\n" + strings.Join(blocks, separator)
 		sendErr := a.deliverNotification(ctx, c, message, now)
 		status, lastError, sentAt, next := "sent", "", now.Unix(), now.Unix()
 		if sendErr != nil {
