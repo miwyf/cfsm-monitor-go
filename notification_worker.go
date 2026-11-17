@@ -123,7 +123,8 @@ func dailyNodeText(s server, now time.Time, zone *time.Location) string {
 	if d != nil && d.Samples > 0 && !d.Partial && median >= 0 && d.Used/gib >= 1 && d.Used/gib > median*3 {
 		marker = " ⚠突增"
 	}
-	return fmt.Sprintf("%s｜昨日 %s%s｜%s", notificationNodeName(s), observedGiB(d), marker, notificationQuotaText(s, now, zone))
+	quota := strings.ReplaceAll(notificationQuotaText(s, now, zone), "｜", "\n")
+	return fmt.Sprintf("%s\n昨日 %s%s\n%s", notificationNodeName(s), observedGiB(d), marker, quota)
 }
 
 func priorBaseline(s server, now time.Time, zone *time.Location) (float64, float64) {
@@ -399,11 +400,7 @@ func (a *app) processNotificationJobs(ctx context.Context, channels []notificati
 			}
 			continue
 		}
-		separator := "\n\n"
-		if j.kind == "daily" {
-			separator = "\n"
-		}
-		message := payload.Heading + "\n\n" + strings.Join(blocks, separator)
+		message := payload.Heading + "\n\n" + strings.Join(blocks, "\n\n")
 		sendErr := a.deliverNotification(ctx, c, message, now)
 		status, lastError, sentAt, next := "sent", "", now.Unix(), now.Unix()
 		if sendErr != nil {
