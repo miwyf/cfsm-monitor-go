@@ -313,7 +313,7 @@ func TestNotificationDailyScopesScheduleAndUTF8(t *testing.T) {
 		if pub != (scope == "public" || scope == "all") || hidden != (scope != "public") {
 			t.Fatal("daily scope", scope)
 		}
-		if !strings.Contains(message, "昨日") || !strings.Contains(message, "重置") {
+		if !strings.Contains(message, "（11/22）\n今日 40.00｜昨日 10.00｜剩余 50.00") {
 			t.Fatal("report fields missing")
 		}
 	}

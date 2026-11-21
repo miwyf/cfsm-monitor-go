@@ -99,32 +99,44 @@ func notificationNodeName(s server) string {
 	}
 	return name
 }
-func notificationQuotaText(s server, now time.Time, zone *time.Location) string {
-	limit, remaining := "—", "—"
-	if s.Limit != nil {
-		limit = fmt.Sprintf("%.2f", *s.Limit)
-	}
+func notificationQuotaFields(s server, now time.Time, zone *time.Location) (remaining, reset string) {
+	remaining = "—"
 	if s.Remaining != nil {
 		remaining = fmt.Sprintf("%.2f", *s.Remaining)
 	}
-	reset := nextReset(s.ResetDay, zone, now)
+	reset = nextReset(s.ResetDay, zone, now)
 	if reset != "" {
 		reset = strings.ReplaceAll(reset[5:10], "-", "/")
-	} else {
+	}
+	return remaining, reset
+}
+func notificationQuotaText(s server, now time.Time, zone *time.Location) string {
+	limit := "—"
+	if s.Limit != nil {
+		limit = fmt.Sprintf("%.2f", *s.Limit)
+	}
+	remaining, reset := notificationQuotaFields(s, now, zone)
+	if reset == "" {
 		reset = "—"
 	}
 	return fmt.Sprintf("剩余 %s/%s｜重置 %s", remaining, limit, reset)
 }
 func dailyNodeText(s server, now time.Time, zone *time.Location) string {
-	yesterday := now.In(zone).AddDate(0, 0, -1)
+	local := now.In(zone)
+	today := findDay(s, local.Format("2006-01-02"))
+	yesterday := local.AddDate(0, 0, -1)
 	d := findDay(s, yesterday.Format("2006-01-02"))
 	marker := ""
 	median, _ := priorBaseline(s, yesterday, zone)
 	if d != nil && d.Samples > 0 && !d.Partial && median >= 0 && d.Used/gib >= 1 && d.Used/gib > median*3 {
 		marker = " ⚠突增"
 	}
-	quota := strings.ReplaceAll(notificationQuotaText(s, now, zone), "｜", "\n")
-	return fmt.Sprintf("%s\n昨日 %s%s\n%s", notificationNodeName(s), observedGiB(d), marker, quota)
+	name := safeNodeName(s.Name)
+	remaining, reset := notificationQuotaFields(s, now, zone)
+	if reset != "" {
+		name += "（" + reset + "）"
+	}
+	return fmt.Sprintf("%s\n今日 %s｜昨日 %s%s｜剩余 %s", name, observedGiB(today), observedGiB(d), marker, remaining)
 }
 
 func priorBaseline(s server, now time.Time, zone *time.Location) (float64, float64) {

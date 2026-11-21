@@ -62,10 +62,15 @@ func TestDailySummaryTenSelectedNodesOneMessage(t *testing.T) {
 		t.Fatalf("10 nodes should share one message, got %d", len(messages))
 	}
 	text := messages[0]
-	if len(text) > 1800 || strings.Contains(text, "今日") || strings.Contains(text, "0.25") || strings.Contains(text, "节点11") || strings.Contains(text, "节点12") {
+	if len(text) > 1800 || strings.Contains(text, "/1000.00") || strings.Contains(text, "节点11") || strings.Contains(text, "节点12") {
 		t.Fatal("report length, date or scope", text)
 	}
-	for _, want := range []string{"昨日 11/15", "节点01\n昨日 96.50 ⚠突增", "节点02 [隐藏]\n昨日 18.20", "US-EXAMPLE.LONG.NODE-NAME [隐藏]\n昨日 18.20", "剩余 50.00/1000.00\n重置 11/22"} {
+	for _, want := range []string{
+		"昨日 11/15",
+		"节点01（11/22）\n今日 0.25｜昨日 96.50 ⚠突增｜剩余 50.00",
+		"节点02（11/22）\n今日 0.25｜昨日 18.20｜剩余 50.00",
+		"US-EXAMPLE.LONG.NODE-NAME（11/22）\n今日 0.25｜昨日 18.20｜剩余 50.00",
+	} {
 		if !strings.Contains(text, want) {
 			t.Fatal("missing report field", want, text)
 		}
@@ -76,8 +81,8 @@ func TestDailySummaryTenSelectedNodesOneMessage(t *testing.T) {
 	}
 	for _, block := range blocks[1:] {
 		lines := strings.Split(block, "\n")
-		if len(lines) != 4 || !strings.HasPrefix(lines[1], "昨日 ") || !strings.HasPrefix(lines[2], "剩余 ") || !strings.HasPrefix(lines[3], "重置 ") {
-			t.Fatal("node name and fields should occupy separate lines", block)
+		if len(lines) != 2 || !strings.HasSuffix(lines[0], "（11/22）") || !strings.HasPrefix(lines[1], "今日 ") || !strings.Contains(lines[1], "｜昨日 ") || !strings.HasSuffix(lines[1], "｜剩余 50.00") {
+			t.Fatal("expected the node and reset date on the first line and usage on the second", block)
 		}
 	}
 	if err := a.runNotifications(context.Background(), now.Add(time.Minute)); err != nil {
@@ -94,7 +99,7 @@ func TestDailySummaryMissingPartialAndPastBaseline(t *testing.T) {
 	now := time.Date(2027, 1, 1, 9, 0, 0, 0, zone)
 	s := server{Name: "跨年\n节点", Days: []day{{Date: "2027-01-01", Samples: 1, Used: 999 * gib}}}
 	text := dailyNodeText(s, now.UTC(), zone)
-	if strings.Contains(text, "999") || !strings.Contains(text, "跨年 节点\n昨日 —\n剩余 —/—\n重置 —") {
+	if text != "跨年 节点\n今日 999.00｜昨日 —｜剩余 —" {
 		t.Fatal("missing data invented", text)
 	}
 	s.Days = append(s.Days, day{Date: "2026-12-31", Samples: 2, Partial: true, Used: 80 * gib})
