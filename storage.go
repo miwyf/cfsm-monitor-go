@@ -5,12 +5,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
 type dayKey struct{ ID, Date string }
+
+const sqliteSchemaVersion = 2
 
 func (a *app) openStore() error {
 	path := filepath.Join(a.dir, "cfsm.db")
@@ -37,7 +40,7 @@ func (a *app) openStore() error {
 	if err = a.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		return err
 	}
-	if version > 2 {
+	if version > sqliteSchemaVersion {
 		return errors.New("unsupported SQLite schema version")
 	}
 	_, err = a.db.Exec(`
@@ -72,7 +75,7 @@ CREATE TABLE IF NOT EXISTS notify_jobs (
  next_at INTEGER NOT NULL, created_at INTEGER NOT NULL, sent_at INTEGER NOT NULL DEFAULT 0,
  last_error TEXT NOT NULL DEFAULT '', UNIQUE(channel_id,event_key));
 CREATE INDEX IF NOT EXISTS notify_jobs_pending ON notify_jobs(status,next_at);
-PRAGMA user_version=2;`)
+PRAGMA user_version=` + strconv.Itoa(sqliteSchemaVersion) + `;`)
 	if err != nil {
 		return err
 	}

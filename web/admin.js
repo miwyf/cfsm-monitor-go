@@ -6,11 +6,14 @@ const number = (n, digits = 2) => n == null ? '—' : Number(n).toLocaleString('
 let status = null, offset = 0, query = null, loggedIn = false, refreshing = false, hasMore = false, epoch = 0;
 function message(text, error = false) { $('message').textContent = text; $('message').hidden = !text; $('message').classList.toggle('is-error', error); }
 let notifications;
+let updateTarget = '', upgrading = false;
 function showLogin() {
   notifications?.clear();
   $('setup-panel').hidden=true; $('setup-form').reset(); $('dashboard-link').hidden=false;
   epoch++; loggedIn = false; status = null; query=null; offset=0; hasMore=false; $('admin-layout').hidden = true; $('logout').hidden = true; $('login-panel').hidden = false;
   $('source-form').reset(); $('account-form').reset(); $('history-form').reset();
+  updateTarget = '';
+  $('apply-update').hidden = true;
   for (const id of ['history-node','history-rows','status-grid','collection-details','database-details']) $(id).innerHTML = '';
 }
 function showSetup() {
@@ -38,7 +41,7 @@ function renderStatus(s) {
   if (s.nodes.some((n) => n.id === selected)) $('history-node').value = selected;
 }
 async function refreshStatus() {
-  if (refreshing || !loggedIn) return;
+  if (refreshing || !loggedIn || upgrading) return;
   refreshing = true; const current=epoch;
   try { const next=await api('/api/admin/status'); if(loggedIn && current===epoch) renderStatus(next); } catch (e) { message(e.message,true); } finally { refreshing = false; }
 }
@@ -62,7 +65,72 @@ document.querySelectorAll('[data-panel]').forEach((button) => button.addEventLis
   document.querySelectorAll('[data-panel]').forEach((b) => b.setAttribute('aria-current',b === button ? 'page' : 'false'));
   document.querySelectorAll('[data-view]').forEach((view) => { view.hidden = view.dataset.view !== button.dataset.panel; });
   message('');
+  if (button.dataset.panel === 'update' && !upgrading) loadUpdateStatus();
 }));
+async function loadUpdateStatus() {
+  $('check-update').disabled = true;
+  $('apply-update').hidden = true;
+  try {
+    const info = await api('/api/admin/update/status');
+    $('update-versions').innerHTML = details([['当前版本', `v${info.current}`]]);
+    $('update-progress').textContent = info.enabled ? '' : '首次请更新到支持应用内升级的 Docker 镜像。';
+    $('check-update').disabled = !info.enabled;
+  } catch (error) {
+    $('update-progress').textContent = error.message;
+  }
+}
+$('check-update').addEventListener('click', () => busy($('check-update'), async () => {
+  $('apply-update').hidden = true;
+  $('update-progress').textContent = '正在检查 GitHub 发布版本…';
+  try {
+    const info = await api('/api/admin/update');
+    $('update-versions').innerHTML = details([['当前版本', `v${info.current}`], ['最新正式版', info.latest ? `v${info.latest}` : '—']]);
+    $('update-progress').textContent = info.needs_image ? '这个版本需要更新 Docker 镜像。' :
+      info.available ? '升级时服务会短暂中断，完成后请重新登录。' :
+      info.latest ? '当前已是最新版本。' : '暂无可用的正式版本。';
+    updateTarget = info.available ? info.latest : '';
+    $('apply-update').hidden = !updateTarget;
+  } catch (error) {
+    $('update-progress').textContent = error.message;
+  }
+}));
+$('apply-update').addEventListener('click', async () => {
+  const target = updateTarget;
+  if (!target || upgrading || !window.confirm(`升级到 v${target}？服务会短暂重启。`)) return;
+  upgrading = true;
+  $('check-update').disabled = $('apply-update').disabled = true;
+  try {
+    await api('/api/admin/update', {version: target});
+    $('update-progress').textContent = '正在下载并校验升级程序…';
+    const deadline = Date.now() + 240000;
+    let restartingAt = 0;
+    let consecutiveReady = 0;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const options = {cache:'no-store', signal: AbortSignal.timeout(4000)};
+      const version = await fetch('/api/version', options).then((res) => res.json()).catch(() => null);
+      consecutiveReady = version?.version === target ? consecutiveReady + 1 : 0;
+      if (consecutiveReady === 4) {
+        sessionStorage.setItem('cfsm-upgraded', target);
+        window.location.reload();
+        return;
+      }
+      const progress = await fetch('/api/admin/update/status', options).then(async (res) => ({status:res.status, ...await res.json()})).catch(() => null);
+      if (progress?.stage === 'error') throw new Error(progress.error);
+      if (progress?.stage === 'restarting' || progress?.status === 401) {
+        restartingAt ||= Date.now();
+        $('update-progress').textContent = '正在切换版本并等待服务恢复…';
+      }
+      if (restartingAt && Date.now() - restartingAt > 35000) break;
+    }
+    throw new Error('未确认新版启动，请刷新页面核对当前版本。');
+  } catch (error) {
+    $('update-progress').textContent = error.message;
+    $('check-update').disabled = $('apply-update').disabled = false;
+  } finally {
+    upgrading = false;
+  }
+});
 $('login-form').addEventListener('submit',(e) => { e.preventDefault(); busy(e.submitter,async () => { await api('/api/login',{username:$('login-username').value,password:$('login-password').value}); $('login-password').value=''; await loadAll(); }); });
 $('setup-form').addEventListener('submit',(e) => { e.preventDefault(); busy(e.submitter,async () => {
   if ($('setup-password').value !== $('setup-confirm').value) throw new Error('两次密码不一致');
@@ -102,5 +170,10 @@ $('account-form').addEventListener('submit',(e) => { e.preventDefault(); busy(e.
 async function start() { try { const session=await api('/api/session'); if (session.setup_required) showSetup(); else if (session.admin) await loadAll(); else showLogin(); } catch (e) { showLogin(); message(e.message,true); } }
 notifications=initNotifications({api,message,busy,epoch:()=>epoch,loggedIn:()=>loggedIn,nodes:()=>status?.nodes||[],zone:()=>status?.time_zone||'Asia/Shanghai'});
 start(); setInterval(refreshStatus,10000);
+const upgraded = sessionStorage.getItem('cfsm-upgraded');
+if (upgraded) {
+  sessionStorage.removeItem('cfsm-upgraded');
+  message(`已升级到 v${upgraded}，请重新登录。`);
+}
 api('/api/version').then((result) => { if (result.version) $('app-version').textContent = `v${result.version}`; }).catch(() => {});
 window.addEventListener('pageshow',(e) => { if (e.persisted) { showLogin(); start(); } });

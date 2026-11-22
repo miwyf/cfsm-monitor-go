@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,6 +76,7 @@ type app struct {
 	notifyMu     sync.Mutex
 	notifyWake   chan struct{}
 	notifyClient *http.Client
+	update       *updateManager
 }
 
 func newApp(dir string, secure bool, zone *time.Location) (*app, error) {
@@ -499,11 +501,20 @@ func (a *app) saveSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	showVersion := flag.Bool("version", false, "print version and exit")
+	showCompat := flag.Bool("update-compat", false, "print container update compatibility and exit")
 	flag.Parse()
 	if *showVersion {
 		fmt.Printf("cfsm-monitor-go v%s\n", appVersion())
-		return
+		return 0
+	}
+	if *showCompat {
+		fmt.Println(updateCompat())
+		return 0
 	}
 	zoneName := os.Getenv("TZ")
 	if zoneName == "" {
@@ -529,19 +540,50 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go a.poll(ctx)
-	go a.notificationLoop(ctx)
-	srv := &http.Server{Addr: addr, Handler: a.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
-	go func() {
-		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdown)
-	}()
-	log.Printf("CFSM Monitor v%s listening on %s", appVersion(), addr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
+	restart := make(chan struct{}, 1)
+	if updateDir := os.Getenv("CFSM_UPDATE_DIR"); updateDir != "" && runtime.GOOS == "linux" && (runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64") {
+		a.update = newUpdateManager(ctx, updateDir, restart)
 	}
+	srv := &http.Server{Addr: addr, Handler: a.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Print(err)
+		return 1
+	}
+	defer listener.Close()
+	if ready := os.Getenv("CFSM_UPDATE_READY"); ready != "" {
+		if err := a.db.PingContext(ctx); err != nil {
+			log.Printf("Upgrade database check: %v", err)
+			return 1
+		}
+		if err := os.WriteFile(ready, nil, 0600); err != nil {
+			log.Printf("Upgrade readiness: %v", err)
+			return 1
+		}
+	}
+	var workers sync.WaitGroup
+	workers.Go(func() { a.poll(ctx) })
+	workers.Go(func() { a.notificationLoop(ctx) })
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- srv.Serve(listener) }()
+	log.Printf("CFSM Monitor v%s listening on %s", appVersion(), addr)
+	exit := 0
+	select {
+	case <-ctx.Done():
+	case <-restart:
+		exit = updateExitCode
+	case err := <-serveErr:
+		log.Printf("HTTP server: %v", err)
+		exit = 1
+	}
+	stop()
+	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdown); err != nil {
+		_ = srv.Close()
+	}
+	workers.Wait()
+	return exit
 }
 
 func number(v any) *float64 {

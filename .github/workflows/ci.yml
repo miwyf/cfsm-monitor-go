@@ -100,3 +100,40 @@ jobs:
           outputs: ${{ steps.image.outputs.publish != 'true' && format('type=oci,dest={0}/cfsm-monitor-go.oci.tar', runner.temp) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  release:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: docker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+      - name: Build application update binaries
+        run: |
+          compatibility="$(go run . --update-compat)"
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -buildvcs=false -ldflags="-s -w" \
+              -o "dist/cfsm-monitor-go-linux-$arch-$compatibility" .
+          done
+      - name: Publish GitHub Release with both binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if draft="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [[ "$draft" == "true" ]]; then
+              gh release upload "$GITHUB_REF_NAME" dist/cfsm-monitor-go-linux-* --clobber
+              gh release edit "$GITHUB_REF_NAME" --draft=false
+            else
+              gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' > "$RUNNER_TEMP/release-assets"
+              for asset in dist/cfsm-monitor-go-linux-*; do
+                grep -Fxq "${asset##*/}" "$RUNNER_TEMP/release-assets"
+              done
+            fi
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes dist/cfsm-monitor-go-linux-*
+          fi

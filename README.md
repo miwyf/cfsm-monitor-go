@@ -130,6 +130,10 @@ Compose 通过 `.env` 设置参数；Docker Run 使用 `-e`；手动运行使用
 
 ## 更新与数据
 
+从 Docker 镜像 0.3.0 开始，进入「后台管理 → 系统更新」，点击「检查更新」和「立即升级」。常规更新只下载对应架构的程序，写入原数据卷并原地重启。服务会短暂中断，完成后请重新登录。数据卷需要允许执行文件。
+
+从旧版首次启用这个功能，或页面提示新版本需要更新镜像时，按部署方式操作：
+
 - **Compose**：执行 `docker compose pull`，再执行 `docker compose up -d`。
 - **Docker Run**：执行 `docker pull ghcr.io/miwyf/cfsm-monitor-go:latest`，删除旧容器 `docker rm -f cfsm-monitor` 后重新执行启动命令，使用原数据卷。
 - **1Panel**：拉取新镜像并重建容器，保留原数据卷。

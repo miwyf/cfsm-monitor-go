@@ -24,6 +24,9 @@ func (a *app) adminOnly(handler http.HandlerFunc) http.HandlerFunc {
 }
 
 func (a *app) adminRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/admin/update", a.adminOnly(a.checkUpdate))
+	mux.HandleFunc("GET /api/admin/update/status", a.adminOnly(a.updateStatus))
+	mux.HandleFunc("POST /api/admin/update", a.adminOnly(a.startUpdate))
 	mux.HandleFunc("GET /api/admin/status", a.adminOnly(a.adminStatus))
 	mux.HandleFunc("GET /api/admin/history", a.adminOnly(a.adminHistory))
 	mux.HandleFunc("POST /api/admin/collect", a.adminOnly(a.collectNow))
